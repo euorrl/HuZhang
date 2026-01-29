@@ -1,0 +1,10 @@
+# ---- frontend build/cache ----
+src/frontend/node_modules/
+src/frontend/.vite/
+src/frontend/dist/
+
+# optional
+src/frontend/*.log
+src/frontend/npm-debug.log*
+src/frontend/yarn-debug.log*
+src/frontend/yarn-error.log*
