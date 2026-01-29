@@ -204,6 +204,8 @@ import { isLoggedIn } from '../store/session'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
+import { gpsStart, gpsNext, gpsStop } from '../api/gps'
+
 const recording = ref(false)
 const seconds = ref(0)
 const distanceKm = ref(0)
@@ -251,34 +253,34 @@ function haversineMeters(a, b) {
 
 // 生成更像骑行的 next point：沿某个方向前进 + 轻微摆动
 // 这里为了简单，把 heading 放在闭包外维护
-let headingRad = 0 // 初始朝向
-function nextMockPoint(prev) {
-  const t = Date.now()
-  if (!prev) {
-    headingRad = 0
-    return { t, lat: DEFAULT_LAT, lon: DEFAULT_LON }
-  }
+// let headingRad = 0 // 初始朝向
+// function nextMockPoint(prev) {
+//   const t = Date.now()
+//   if (!prev) {
+//     headingRad = 0
+//     return { t, lat: DEFAULT_LAT, lon: DEFAULT_LON }
+//   }
 
-  // speed
-  const speed = 20 + Math.random() * 5
-  const dt = 1 // 1 sec per tick
-  const d = speed * dt
+//   // speed
+//   const speed = 20 + Math.random() * 5
+//   const dt = 1 // 1 sec per tick
+//   const d = speed * dt
 
-  // 轻微转向（-10°~10°）
-  const turn = ((Math.random() * 20) - 10) * (Math.PI / 180)
-  headingRad += turn
+//   // 轻微转向（-10°~10°）
+//   const turn = ((Math.random() * 20) - 10) * (Math.PI / 180)
+//   headingRad += turn
 
-  const metersPerDegLat = 111320
-  const metersPerDegLon = 111320 * Math.cos((prev.lat * Math.PI) / 180)
+//   const metersPerDegLat = 111320
+//   const metersPerDegLon = 111320 * Math.cos((prev.lat * Math.PI) / 180)
 
-  const dNorth = d * Math.cos(headingRad)
-  const dEast = d * Math.sin(headingRad)
+//   const dNorth = d * Math.cos(headingRad)
+//   const dEast = d * Math.sin(headingRad)
 
-  const lat = prev.lat + dNorth / metersPerDegLat
-  const lon = prev.lon + dEast / metersPerDegLon
+//   const lat = prev.lat + dNorth / metersPerDegLat
+//   const lon = prev.lon + dEast / metersPerDegLon
 
-  return { t, lat, lon }
-}
+//   return { t, lat, lon }
+// }
 
 function resetPolyline() {
   if (!map) return
@@ -387,7 +389,13 @@ function pushPointAndUpdate(p) {
   if (map) map.panTo([p.lat, p.lon], { animate: true })
 }
 
-function start() {
+async function start() {
+  if (recording.value) return
+
+  // 1) 通知后端开始本次 trip
+  await gpsStart()
+
+  // 2) 前端本地状态重置（保留你原来的逻辑）
   recording.value = true
   seconds.value = 0
   distanceKm.value = 0
@@ -397,24 +405,54 @@ function start() {
   resetPolyline()
   clearMarkers()
 
-  const first = nextMockPoint(null)
-  pushPointAndUpdate(first)
+  // 3) 立刻拉第一个点，避免空等 1 秒
+  const firstRaw = await gpsNext()
+  const first = { t: firstRaw.timestamp ?? Date.now(), lat: firstRaw.lat, lon: firstRaw.lon }
 
+  pushPointAndUpdate(first)
   setStartMarker(first)
   if (map) map.setView([first.lat, first.lon], 16)
 
-  timer = setInterval(() => {
-    seconds.value += 1
-    const p = nextMockPoint(lastPoint)
-    pushPointAndUpdate(p)
+  // 4) 每秒拉一次 next
+  timer = setInterval(async () => {
+    try {
+      seconds.value += 1
+      const raw = await gpsNext()
+
+      // raw 可能是 not_started 状态（防御一下）
+      if (!raw || raw.lat == null || raw.lon == null) return
+
+      // 到终点后：后端会一直返回终点
+      // 为了不重复累加距离，我们在 holding=true 时不再 push
+      if (raw.holding === true) {
+        // 终点 marker 只设一次
+        if (points.value.length > 0) {
+          const endP = points.value[points.value.length - 1]
+          // 如果最后一个点已经是终点，就不重复追加
+          if (endP.lat !== raw.lat || endP.lon !== raw.lon) {
+            const p = { t: raw.timestamp ?? Date.now(), lat: raw.lat, lon: raw.lon }
+            pushPointAndUpdate(p)
+          }
+        }
+        return
+      }
+
+      const p = { t: raw.timestamp ?? Date.now(), lat: raw.lat, lon: raw.lon }
+      pushPointAndUpdate(p)
+
+    } catch (e) {
+      console.error('gpsNext failed:', e)
+    }
   }, 1000)
 }
-
 
 async function stop() {
   recording.value = false
   if (timer) clearInterval(timer)
   timer = null
+
+  // 通知后端结束这条 trip（并准备下一条路线）
+  await gpsStop()
 
   if (points.value.length === 0) return
 
