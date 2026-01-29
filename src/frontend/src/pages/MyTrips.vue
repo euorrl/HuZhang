@@ -80,14 +80,26 @@
               <span class="badge soft">map preview</span>
             </div>
 
-            <div class="mapbox">
+            <!-- <div class="mapbox">
               <div class="hint">
                 <div style="font-weight:900; margin-bottom:6px; color: rgba(15,23,42,0.90);">
                   Map placeholder
                 </div>
                 Trip geometry will render here (later: Leaflet/Mapbox).
               </div>
+            </div> -->
+
+            <div class="mapbox">
+              <div
+                id="tripMap"
+                style="
+                  height: 100%;
+                  width: 100%;
+                  border-radius: 12px;
+                "
+              ></div>
             </div>
+
 
             <div class="mini">
               <div class="mini-title">Current session</div>
@@ -114,9 +126,13 @@
           <div v-else class="list">
             <div class="item" v-for="t in trips" :key="t.id">
               <div class="left">
-                <div class="title">Trip #{{ t.id }}</div>
+                <div class="title">
+                  {{ t.startPlaceShort }} - {{ t.endPlaceShort }}
+                </div>
                 <div class="meta">
-                  {{ t.date }} • {{ t.distanceKm.toFixed(2) }} km • {{ t.durationSec }} s
+                  {{ t.date }} • {{ t.distanceKm.toFixed(2) }} km • {{ t.durationSec }} s • {{ t.paceText }}
+                  <br />
+                  {{ t.startPlaceFull }} → {{ t.endPlaceFull }}
                 </div>
               </div>
               <div class="right">
@@ -131,7 +147,7 @@
   </div>
 </template>
 
-<script setup>
+<!-- <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { isLoggedIn } from '../store/session'
 
@@ -179,7 +195,347 @@ function stop() {
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
 })
+</script> -->
+
+<script setup>
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { isLoggedIn } from '../store/session'
+
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+
+import { gpsStart, gpsNext, gpsStop } from '../api/gps'
+
+const recording = ref(false)
+const seconds = ref(0)
+const distanceKm = ref(0)
+
+const trips = ref([])
+let timer = null
+
+// ---- GPS track ----
+const points = ref([]) // {t, lat, lon}[]
+let map = null
+let polyline = null
+let lastPoint = null
+let startMarker = null
+let endMarker = null
+
+// Politecnico di Milano – Leonardo Campus
+const DEFAULT_LAT = 45.4781
+const DEFAULT_LON = 9.2271
+
+const pace = computed(() => {
+  if (seconds.value === 0) return '—'
+  const km = distanceKm.value
+  if (km <= 0.01) return '—'
+  const minPerKm = (seconds.value / 60) / km
+  const m = Math.floor(minPerKm)
+  const s = Math.round((minPerKm - m) * 60)
+  return `${m}:${String(s).padStart(2, '0')} min/km`
+})
+
+function haversineMeters(a, b) {
+  const R = 6371000
+  const toRad = (d) => (d * Math.PI) / 180
+
+  const dLat = toRad(b.lat - a.lat)
+  const dLon = toRad(b.lon - a.lon)
+  const lat1 = toRad(a.lat)
+  const lat2 = toRad(b.lat)
+
+  const sinDLat = Math.sin(dLat / 2)
+  const sinDLon = Math.sin(dLon / 2)
+  const x = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon
+  const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
+  return R * c
+}
+
+// 生成更像骑行的 next point：沿某个方向前进 + 轻微摆动
+// 这里为了简单，把 heading 放在闭包外维护
+// let headingRad = 0 // 初始朝向
+// function nextMockPoint(prev) {
+//   const t = Date.now()
+//   if (!prev) {
+//     headingRad = 0
+//     return { t, lat: DEFAULT_LAT, lon: DEFAULT_LON }
+//   }
+
+//   // speed
+//   const speed = 20 + Math.random() * 5
+//   const dt = 1 // 1 sec per tick
+//   const d = speed * dt
+
+//   // 轻微转向（-10°~10°）
+//   const turn = ((Math.random() * 20) - 10) * (Math.PI / 180)
+//   headingRad += turn
+
+//   const metersPerDegLat = 111320
+//   const metersPerDegLon = 111320 * Math.cos((prev.lat * Math.PI) / 180)
+
+//   const dNorth = d * Math.cos(headingRad)
+//   const dEast = d * Math.sin(headingRad)
+
+//   const lat = prev.lat + dNorth / metersPerDegLat
+//   const lon = prev.lon + dEast / metersPerDegLon
+
+//   return { t, lat, lon }
+// }
+
+function resetPolyline() {
+  if (!map) return
+  if (polyline) {
+    polyline.remove()
+    polyline = null
+  }
+  polyline = L.polyline([], { weight: 4, color: 'red' }).addTo(map)
+}
+
+function clearMarkers() {
+  if (startMarker) { startMarker.remove(); startMarker = null }
+  if (endMarker) { endMarker.remove(); endMarker = null }
+}
+
+function calcPaceMinPerKm(durationSec, distanceKm) {
+  if (!distanceKm || distanceKm <= 0.01) return null
+  return (durationSec / 60) / distanceKm
+}
+
+function formatPaceFromMinPerKm(paceMinPerKm) {
+  if (!paceMinPerKm) return '—'
+  const m = Math.floor(paceMinPerKm)
+  const s = Math.round((paceMinPerKm - m) * 60)
+  return `${m}:${String(s).padStart(2, '0')} min/km`
+}
+
+// 逆地理编码：lat/lon -> 可读地址
+async function reverseGeocode(lat, lon) {
+  const url =
+    `https://nominatim.openstreetmap.org/reverse` +
+    `?format=jsonv2` +
+    `&lat=${lat}` +
+    `&lon=${lon}` +
+    `&addressdetails=1` +
+    `&accept-language=en`
+
+  const res = await fetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) throw new Error(`Reverse geocode failed: ${res.status}`)
+  const data = await res.json()
+  const a = data.address || {}
+
+  // --- 1) short: 你标题的“一级地址”
+  // 优先用更像地点的字段，避免总是 Municipio 1
+  const short =
+    a.attraction ||
+    a.amenity ||
+    a.tourism ||
+    a.shop ||
+    a.road ||
+    a.pedestrian ||
+    a.neighbourhood ||
+    a.quarter ||
+    a.suburb ||
+    a.city_district ||
+    a.city ||
+    a.town ||
+    a.village ||
+    'Unknown'
+
+  // --- 2) full: 你 meta 下面显示的“较完整英文地址”
+  // 典型结构：house_number + road, suburb/city_district, city, state, country
+  const line1 = [a.house_number, a.road || a.pedestrian].filter(Boolean).join(' ')
+  const line2 = a.suburb || a.city_district || a.neighbourhood || a.quarter
+  const city = a.city || a.town || a.village
+  const state = a.state
+  const country = a.country
+
+  const fullParts = [line1 || short, line2, city, state, country].filter(Boolean)
+  const full = fullParts.join(', ')
+
+  return { short, full }
+}
+
+function setStartMarker(p) {
+  if (!map) return
+  if (startMarker) startMarker.remove()
+
+  startMarker = L.marker([p.lat, p.lon], {
+    title: 'Start',
+    color: 'green'
+  }).addTo(map)
+}
+
+function setEndMarker(p) {
+  if (!map) return
+  if (endMarker) endMarker.remove()
+
+  endMarker = L.marker([p.lat, p.lon], {
+    title: 'End',
+  }).addTo(map)
+}
+
+function pushPointAndUpdate(p) {
+  points.value.push(p)
+
+  if (lastPoint) {
+    const dM = haversineMeters(lastPoint, p)
+    distanceKm.value += dM / 1000
+  }
+  lastPoint = p
+
+  if (polyline) polyline.addLatLng([p.lat, p.lon])
+
+  // 让地图跟随当前位置（可选）
+  if (map) map.panTo([p.lat, p.lon], { animate: true })
+}
+
+async function start() {
+  if (recording.value) return
+
+  // 1) 通知后端开始本次 trip
+  await gpsStart()
+
+  // 2) 前端本地状态重置（保留你原来的逻辑）
+  recording.value = true
+  seconds.value = 0
+  distanceKm.value = 0
+
+  points.value = []
+  lastPoint = null
+  resetPolyline()
+  clearMarkers()
+
+  // 3) 立刻拉第一个点，避免空等 1 秒
+  const firstRaw = await gpsNext()
+  const first = { t: firstRaw.timestamp ?? Date.now(), lat: firstRaw.lat, lon: firstRaw.lon }
+
+  pushPointAndUpdate(first)
+  setStartMarker(first)
+  if (map) map.setView([first.lat, first.lon], 16)
+
+  // 4) 每秒拉一次 next
+  timer = setInterval(async () => {
+    try {
+      seconds.value += 1
+      const raw = await gpsNext()
+
+      // raw 可能是 not_started 状态（防御一下）
+      if (!raw || raw.lat == null || raw.lon == null) return
+
+      // 到终点后：后端会一直返回终点
+      // 为了不重复累加距离，我们在 holding=true 时不再 push
+      if (raw.holding === true) {
+        // 终点 marker 只设一次
+        if (points.value.length > 0) {
+          const endP = points.value[points.value.length - 1]
+          // 如果最后一个点已经是终点，就不重复追加
+          if (endP.lat !== raw.lat || endP.lon !== raw.lon) {
+            const p = { t: raw.timestamp ?? Date.now(), lat: raw.lat, lon: raw.lon }
+            pushPointAndUpdate(p)
+          }
+        }
+        return
+      }
+
+      const p = { t: raw.timestamp ?? Date.now(), lat: raw.lat, lon: raw.lon }
+      pushPointAndUpdate(p)
+
+    } catch (e) {
+      console.error('gpsNext failed:', e)
+    }
+  }, 1000)
+}
+
+async function stop() {
+  recording.value = false
+  if (timer) clearInterval(timer)
+  timer = null
+
+  // 通知后端结束这条 trip（并准备下一条路线）
+  await gpsStop()
+
+  if (points.value.length === 0) return
+
+  const startPoint = points.value[0]
+  const endPoint = points.value[points.value.length - 1]
+
+  // 地图终点 marker
+  setEndMarker(endPoint)
+
+  if (polyline && map && points.value.length >= 2) {
+    map.fitBounds(polyline.getBounds(), { padding: [20, 20] })
+  }
+
+  // 计算 pace（min/km 数值 + 文本）
+  const paceMinPerKm = calcPaceMinPerKm(seconds.value, distanceKm.value)
+  const paceText = formatPaceFromMinPerKm(paceMinPerKm)
+
+  // 逆地理编码
+  let startPlaceShort = 'Unknown'
+  let startPlaceFull = 'Unknown'
+  let endPlaceShort = 'Unknown'
+  let endPlaceFull = 'Unknown'
+
+  try {
+    const [s, e] = await Promise.all([
+      reverseGeocode(startPoint.lat, startPoint.lon),
+      reverseGeocode(endPoint.lat, endPoint.lon),
+    ])
+    startPlaceShort = s.short
+    startPlaceFull = s.full
+    endPlaceShort = e.short
+    endPlaceFull = e.full
+  } catch (e) {
+    console.warn('Reverse geocoding failed:', e)
+  }
+
+  trips.value.unshift({
+    id: Date.now(),
+    date: new Date().toISOString().slice(0, 10),
+    durationSec: seconds.value,
+    distanceKm: Number(distanceKm.value.toFixed(2)),
+
+    // 配速
+    paceMinPerKm: paceMinPerKm ? Number(paceMinPerKm.toFixed(2)) : null,
+    paceText, // 可选：UI 直接用这个字符串
+
+    // 起终点经纬度
+    startLat: startPoint.lat,
+    startLon: startPoint.lon,
+    endLat: endPoint.lat,
+    endLon: endPoint.lon,
+
+    // 起终点地址名
+    startPlaceShort,
+    startPlaceFull,
+    endPlaceShort,
+    endPlaceFull,
+
+    // 未来给后端保存用：轨迹点
+    track: points.value.map(p => ({ t: p.t, lat: p.lat, lon: p.lon })),
+  })
+}
+
+onMounted(() => {
+  map = L.map('tripMap', { zoomControl: true }).setView([DEFAULT_LAT, DEFAULT_LON], 13)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap',
+  }).addTo(map)
+
+  resetPolyline()
+})
+
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer)
+  timer = null
+  if (map) {
+    map.remove()
+    map = null
+  }
+})
 </script>
+
 
 <style scoped>
 /* ===== Page background ===== */
@@ -421,4 +777,11 @@ h1{
   .grid{ grid-template-columns: 1fr; }
   .stats{ grid-template-columns: 1fr; }
 }
+
+.mapbox {
+  height: 320px;        /* 或 100%，看你布局 */
+  background: #f8fafc; /* 可选 */
+  border-radius: 12px;
+}
+
 </style>

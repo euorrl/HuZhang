@@ -64,12 +64,26 @@
         </div>
 
         <div class="mapbox">
-          <div class="hint">Interactive map will be available in a later version.</div>
+          <div id="map" class="map-container"></div>
         </div>
       </section>
     </div>
   </div>
 </template>
+
+<script setup>
+import { onMounted } from "vue";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+onMounted(() => {
+  const map = L.map("map").setView([45.4642, 9.19], 13);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors",
+  }).addTo(map);
+});
+</script>
 
 <style scoped>
 /* ===== Page background (same as Explore Routes) ===== */
@@ -307,4 +321,10 @@ h1 {
   text-align: center;
   padding: 0 14px;
 }
+.map-container {
+  width: 100%;
+  height: 360px;   /* 或 400px */
+  border-radius: 12px;
+}
+
 </style>

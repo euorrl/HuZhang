@@ -25,9 +25,33 @@
           <label>Destination</label>
           <input v-model="destination" placeholder="e.g., Politecnico di Milano" />
 
+          <!--
           <div class="row">
             <label class="chk"><input type="checkbox" v-model="preferSafer" /> Prefer safer</label>
             <label class="chk"><input type="checkbox" v-model="preferShorter" /> Prefer shorter</label>
+          </div>
+          -->
+
+          <div class="row">
+            <label class="chk">
+              <input
+                type="radio"
+                name="preference"
+                value="safer"
+                v-model="preference"
+              />
+              Prefer safer
+            </label>
+
+            <label class="chk">
+              <input
+                type="radio"
+                name="preference"
+                value="shorter"
+                v-model="preference"
+              />
+              Prefer shorter
+            </label>
           </div>
 
           <button class="btn primary" @click="searchMock">Search (mock)</button>
@@ -55,7 +79,7 @@
           </div>
 
           <div class="mapbox">
-            <div class="hint">Route geometry will be rendered here.</div>
+            <div id="map" class="map-container"></div>
           </div>
 
           <div class="mini" v-if="selected">
@@ -99,10 +123,15 @@
 import { ref } from 'vue'
 import { getHealth } from '../api/health'
 
+import { onMounted } from "vue";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
 const origin = ref('')
 const destination = ref('')
-const preferSafer = ref(false)
-const preferShorter = ref(false)
+//const preferSafer = ref(false)
+//const preferShorter = ref(false)
+const preference = ref("safer")
 
 const results = ref([])
 const selected = ref(null)
@@ -115,10 +144,30 @@ function searchMock() {
   const o = origin.value || 'Origin'
   const d = destination.value || 'Destination'
 
+  // results.value = [
+  //   { id: 1, name: `Option A: ${o} → ${d}`, score: preferSafer.value ? 82 : 75, distanceKm: preferShorter.value ? 6.1 : 7.4, status: 'mostly optimal' },
+  //   { id: 2, name: `Option B: ${o} → ${d}`, score: preferSafer.value ? 78 : 72, distanceKm: preferShorter.value ? 6.8 : 8.0, status: 'medium, some potholes' },
+  // ]
+  const isSafer = preference.value === "safer"
+  const isShorter = preference.value === "shorter"
+
   results.value = [
-    { id: 1, name: `Option A: ${o} → ${d}`, score: preferSafer.value ? 82 : 75, distanceKm: preferShorter.value ? 6.1 : 7.4, status: 'mostly optimal' },
-    { id: 2, name: `Option B: ${o} → ${d}`, score: preferSafer.value ? 78 : 72, distanceKm: preferShorter.value ? 6.8 : 8.0, status: 'medium, some potholes' },
+    {
+      id: 1,
+      name: `Option A: ${o} → ${d}`,
+      score: isSafer ? 82 : 75,
+      distanceKm: isShorter ? 6.1 : 7.4,
+      status: "mostly optimal",
+    },
+    {
+      id: 2,
+      name: `Option B: ${o} → ${d}`,
+      score: isSafer ? 78 : 72,
+      distanceKm: isShorter ? 6.8 : 8.0,
+      status: "medium, some potholes",
+    },
   ]
+
   selected.value = results.value[0]
 }
 
@@ -134,6 +183,14 @@ async function checkHealth() {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  const map = L.map("map").setView([45.4642, 9.19], 13);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors",
+  }).addTo(map);
+});
 </script>
 
 <style scoped>
@@ -399,5 +456,11 @@ code{
 
 @media (max-width: 1000px){
   .grid{ grid-template-columns: 1fr; }
+}
+
+.map-container {
+  width: 100%;
+  height: 360px;   /* 或 400px */
+  border-radius: 12px;
 }
 </style>
