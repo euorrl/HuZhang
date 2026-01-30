@@ -124,7 +124,13 @@
           </div>
 
           <div v-else class="list">
-            <div class="item" v-for="t in trips" :key="t.id">
+            <div class="item"
+              v-for="t in trips"
+              :key="t.id"
+              @click="openTrip(t)"
+              :class="{ active: selectedTripId === t.id }"
+              style="cursor:pointer"
+            >
               <div class="left">
                 <div class="title">
                   {{ t.startPlaceShort }} - {{ t.endPlaceShort }}
@@ -205,10 +211,12 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
 import { gpsStart, gpsNext, gpsStop } from '../api/gps'
+import { createTrip, fetchTripsByUser, fetchTripById } from '../api/trips'
 
 const recording = ref(false)
 const seconds = ref(0)
 const distanceKm = ref(0)
+const selectedTripId = ref(null)
 
 const trips = ref([])
 let timer = null
@@ -389,6 +397,77 @@ function pushPointAndUpdate(p) {
   if (map) map.panTo([p.lat, p.lon], { animate: true })
 }
 
+async function loadTrips() {
+  const userId = Number(localStorage.getItem('bbp_userId'))
+  if (!userId) return
+
+  try {
+    const data = await fetchTripsByUser(userId)
+
+    // 后端现在返回 paceMinPerKm / durationSec / distanceKm 等
+    // 我们在前端补一个 paceText，方便直接渲染
+    trips.value = (data || []).map(t => {
+      const paceText = formatPaceFromMinPerKm(t.paceMinPerKm)
+      return { ...t, paceText }
+    })
+  } catch (e) {
+    console.error('loadTrips failed', e)
+  }
+}
+
+function normalizeTrack(track) {
+  // 后端可能返回：JSON 字符串 或 数组
+  if (!track) return []
+  if (Array.isArray(track)) return track
+  if (typeof track === 'string') {
+    try { return JSON.parse(track) } catch { return [] }
+  }
+  return []
+}
+
+function renderTripOnMap(trackPoints) {
+  if (!map) return
+  resetPolyline()
+  clearMarkers()
+
+  if (!trackPoints || trackPoints.length === 0) return
+
+  // 统一成 {lat, lon}（你 track 里是 {t, lat, lon}）
+  const latlngs = trackPoints
+    .filter(p => p && p.lat != null && p.lon != null)
+    .map(p => [p.lat, p.lon])
+
+  if (latlngs.length === 0) return
+
+  polyline.setLatLngs(latlngs)
+
+  const start = trackPoints[0]
+  const end = trackPoints[trackPoints.length - 1]
+  setStartMarker(start)
+  setEndMarker(end)
+
+  // 视野适配
+  map.fitBounds(polyline.getBounds(), { padding: [20, 20] })
+}
+
+async function openTrip(t) {
+  try {
+    selectedTripId.value = t.id
+
+    // 1) 拉详情（含 track）
+    const full = await fetchTripById(t.id)
+
+    // 2) 解析 track
+    const trackPoints = normalizeTrack(full.track)
+
+    // 3) 渲染到地图
+    renderTripOnMap(trackPoints)
+  } catch (e) {
+    console.error('openTrip failed:', e)
+    alert('Failed to load trip detail')
+  }
+}
+
 async function start() {
   if (recording.value) return
 
@@ -489,31 +568,66 @@ async function stop() {
     console.warn('Reverse geocoding failed:', e)
   }
 
-  trips.value.unshift({
-    id: Date.now(),
+  const createdBy = Number(localStorage.getItem('bbp_userId'))
+  if (!createdBy) {
+    alert('Please login first')
+    return
+  }
+
+  // 1) createdBy（注意 localStorage key）
+  if (!createdBy) {
+    alert('Please login first')
+    return
+  }
+
+  // 2) track：必须 stringify（你后端现在就是按字符串插入的）
+  const trackArr = points.value.map(p => ({ t: p.t, lat: p.lat, lon: p.lon }))
+  const trackJson = JSON.stringify(trackArr)
+
+  // 3) 组装后端需要的 payload（字段名对齐 DB/Mapper）
+  const payload = {
+    createdBy,
     date: new Date().toISOString().slice(0, 10),
     durationSec: seconds.value,
     distanceKm: Number(distanceKm.value.toFixed(2)),
-
-    // 配速
     paceMinPerKm: paceMinPerKm ? Number(paceMinPerKm.toFixed(2)) : null,
-    paceText, // 可选：UI 直接用这个字符串
 
-    // 起终点经纬度
     startLat: startPoint.lat,
     startLon: startPoint.lon,
     endLat: endPoint.lat,
     endLon: endPoint.lon,
 
-    // 起终点地址名
     startPlaceShort,
     startPlaceFull,
     endPlaceShort,
     endPlaceFull,
 
-    // 未来给后端保存用：轨迹点
-    track: points.value.map(p => ({ t: p.t, lat: p.lat, lon: p.lon })),
-  })
+    track: trackJson,
+
+    conditionRating: 0,
+    safetyRating: 0,
+    notes: '',
+    isPublic: 0,
+  }
+
+  try {
+    // 4) 调后端入库
+    const saved = await createTrip(payload) // { id: 1 }
+    const newId = saved?.id ?? Date.now()
+
+    // 5) 本地列表也更新（id 用后端 id）
+    trips.value.unshift({
+      ...payload,
+      id: newId,
+      paceText,        // 你 UI 用
+      track: trackArr, // 前端保留数组，方便马上画图（可选）
+    })
+
+  } catch (e) {
+    console.error('createTrip failed:', e)
+    alert('Failed to save trip. Check backend console.')
+  }
+
 }
 
 onMounted(() => {
@@ -524,6 +638,7 @@ onMounted(() => {
   }).addTo(map)
 
   resetPolyline()
+  loadTrips()
 })
 
 onBeforeUnmount(() => {
@@ -535,7 +650,6 @@ onBeforeUnmount(() => {
   }
 })
 </script>
-
 
 <style scoped>
 /* ===== Page background ===== */
@@ -782,6 +896,38 @@ h1{
   height: 320px;        /* 或 100%，看你布局 */
   background: #f8fafc; /* 可选 */
   border-radius: 12px;
+}
+
+/* clickable + hover */
+.item {
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 40px rgba(0,0,0,0.14);
+  border-color: rgba(37,99,235,0.25);
+}
+
+/* selected item */
+.item.active {
+  background: rgba(37,99,235,0.08);
+  border-color: rgba(37,99,235,0.35);
+  box-shadow: 0 22px 54px rgba(37,99,235,0.18);
+  position: relative;
+}
+
+/* left accent bar */
+.item.active::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  border-radius: 999px;
+  background: rgba(37,99,235,0.75);
 }
 
 </style>

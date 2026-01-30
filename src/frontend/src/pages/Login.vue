@@ -32,28 +32,36 @@
           </div>
         </div>
 
+        <div>
+          <p class="hint">
+            Tip: If the username does not exist, it will be registered automatically after you submit.
+          </p>
+        </div>
+        
         <div class="row">
           <button class="btn primary" @click="doLogin" :disabled="isLoggedIn">
-            Enable logged-in mode
+            Login
           </button>
-          <button class="btn secondary" @click="logoutMock" :disabled="!isLoggedIn">
+          <button class="btn secondary" @click="logout" :disabled="!isLoggedIn">
             Logout
           </button>
         </div>
 
         <div class="divider"></div>
+        <p v-if="message" class="msg">
+          {{ message }}
+        </p>
 
         <div class="status">
           <div class="k">Current status</div>
-          <div class="v">{{ isLoggedIn ? 'REGISTERED' : 'GUEST' }}</div>
-          <div class="muted" style="margin-top:6px;">This is a prototype toggle (no validation).</div>
+          <div class="v">{{ isLoggedIn ? authMode : 'GUEST' }}</div>
         </div>
       </section>
     </div>
   </div>
 </template>
 
-<script setup>
+<!-- <script setup>
 import { ref } from 'vue'
 import { isLoggedIn, loginMock, logoutMock } from '../store/session'
 
@@ -63,7 +71,90 @@ const password = ref('')
 function doLogin() {
   loginMock()
 }
+</script> -->
+<script setup>
+import { ref } from 'vue'
+import { isLoggedIn, loginMock, logoutMock } from '../store/session'
+
+// 你已有的输入框
+const username = ref('')
+const password = ref('')
+
+// 额外：保存后端返回的信息（用于 UI 显示、后面创建 trip 的 createdBy）
+const userId = ref(null)
+const authMode = ref('GUEST') // REGISTER / LOGIN / GUEST
+const message = ref('')       // 可选：显示错误/提示
+
+async function doLogin() {
+  message.value = ''
+
+  // 简单校验
+  if (!username.value.trim() || !password.value) {
+    message.value = 'Please enter username and password.'
+    return
+  }
+
+  try {
+    const res = await fetch('http://localhost:9090/auth/login-or-register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: username.value.trim(),
+        password: password.value
+      })
+    })
+
+    if (res.status === 401) {
+      message.value = 'Password incorrect.'
+      return
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      message.value = 'Request failed. ' + (text || '')
+      return
+    }
+
+    const data = await res.json() // { id, username, mode }
+
+    // 1) 保存返回值
+    userId.value = data.id
+    authMode.value = data.mode || 'LOGIN'
+
+    // 2) 你现有 store 里只有“开关”，先继续用它：表示已登录
+    loginMock()
+
+    message.value = `${authMode.value} success: ${data.username} (id=${data.id})`
+
+    // 3) 可选：持久化到 localStorage，刷新不丢
+    localStorage.setItem('bbp_userId', String(data.id))
+    localStorage.setItem('bbp_username', String(data.username))
+    localStorage.setItem('bbp_authMode', String(authMode.value))
+
+  } catch (e) {
+    message.value = 'Network error: ' + (e?.message || e)
+  }
+}
+
+function logout() {
+  logoutMock()
+  userId.value = null
+  authMode.value = 'GUEST'
+  message.value = ''
+  localStorage.removeItem('bbp_userId')
+  localStorage.removeItem('bbp_username')
+  localStorage.removeItem('bbp_authMode')
+}
+
+// 可选：页面加载时尝试恢复登录态
+const savedId = localStorage.getItem('bbp_userId')
+if (savedId) {
+  userId.value = Number(savedId)
+  authMode.value = localStorage.getItem('bbp_authMode') || 'LOGIN'
+  // 你现有 store 是一个开关，所以直接置为 logged-in
+  loginMock()
+}
 </script>
+
 
 <style scoped>
 /* ===== Page background ===== */
