@@ -54,16 +54,23 @@
           <div class="divider"></div>
 
           <div class="card-title">
-            <h3>Backend health</h3>
-            <span class="badge ok">api</span>
+            <h3>Search scope</h3>
+            <span class="badge ok">public</span>
           </div>
 
-          <p class="muted">Call: <code>GET /api/health</code></p>
-          <button class="btn secondary" @click="checkHealth" :disabled="loading">
-            {{ loading ? 'Checking...' : 'Check health' }}
-          </button>
+          <p class="muted">
+            Results come from published trips. Use keywords to match start/end places.
+          </p>
 
-          <p v-if="health" class="state okText">Result: {{ health }}</p>
+          <div class="row">
+            <button class="btn secondary" @click="clearForm" :disabled="loading">
+              Clear form
+            </button>
+            <button class="btn secondary" @click="clearResults" :disabled="loading || results.length === 0">
+              Clear results
+            </button>
+          </div>
+
           <p v-if="err" class="state errText">Error: {{ err }}</p>
         </section>
 
@@ -84,7 +91,9 @@
             </div>
             <div class="mini-meta">
               <div><b>{{ selected.name }}</b></div>
-              <div class="muted">Distance: {{ selected.distanceKm }} km • {{ selected.status }}</div>
+              <div class="muted">
+                Distance: {{ selected.distanceKm }} km • {{ selected.status }}
+              </div>
             </div>
           </div>
         </section>
@@ -96,15 +105,27 @@
           <span class="badge">{{ results.length }}</span>
         </div>
 
-        <div v-if="results.length === 0" class="empty">
-          No results yet. Run a search.
+        <!-- 1) 没搜过 -->
+        <div v-if="!hasSearched" class="empty">
+          No search yet. Enter origin/destination and press Search.
         </div>
 
+        <!-- 2) 搜过但 0 条 -->
+        <div v-else-if="results.length === 0" class="empty">
+          No public routes found for this query.
+          <div class="muted" style="margin-top:6px;">
+            Try broader keywords or check spelling.
+          </div>
+        </div>
+
+        <!-- 3) 有结果 -->
         <div class="list" v-else>
           <div class="item" v-for="r in results" :key="r.id">
             <div class="left">
               <div class="title">{{ r.name }}</div>
-              <div class="meta">Score {{ r.score }} • {{ r.distanceKm }} km • {{ r.status }}</div>
+              <div class="meta">
+                Score {{ r.score }} • {{ r.distanceKm }} km • {{ r.status }}
+              </div>
             </div>
             <button class="btn tiny" @click="selected = r">View</button>
           </div>
@@ -115,25 +136,28 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
-import { getHealth } from '../api/health'
+import { ref, onMounted, watch, nextTick } from 'vue'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-
+// ===== State =====
 const origin = ref('')
 const destination = ref('')
-const preference = ref("safer")
+const preference = ref('safer')
 
 const results = ref([])
 const selected = ref(null)
 
 const loading = ref(false)
-const health = ref('')
 const err = ref('')
 
+// 是否已发起过搜索（用于 Results 空态区分）
+const hasSearched = ref(false)
+
 let map = null
-let routeLayer = null
+let polyline = null
+let startMarker = null
+let endMarker = null
 
 function buildQuery(params) {
   const qs = new URLSearchParams()
@@ -146,6 +170,7 @@ function buildQuery(params) {
 async function searchPublic() {
   loading.value = true
   err.value = ''
+  hasSearched.value = true
 
   try {
     const qs = buildQuery({
@@ -159,12 +184,11 @@ async function searchPublic() {
 
     const data = await res.json()
 
-    // 映射成你 UI 现在的字段结构（不改模板）
     results.value = (data || []).map(t => ({
       id: t.id,
       name: `${t.startPlaceShort || 'Origin'} → ${t.endPlaceShort || 'Destination'}`,
-      score: t.safetyRating ?? '-',                     // score 用 safety_rating
-      distanceKm: t.distanceKm ?? '-',                  // km
+      score: t.safetyRating ?? '-',
+      distanceKm: t.distanceKm ?? '-',
       status: `cond ${t.conditionRating ?? '-'} / safe ${t.safetyRating ?? '-'}`,
       track: t.track,
       startLat: t.startLat,
@@ -181,74 +205,106 @@ async function searchPublic() {
   }
 }
 
-async function checkHealth() {
-  loading.value = true
-  health.value = ''
-  err.value = ''
-  try {
-    health.value = await getHealth()
-  } catch (e) {
-    err.value = e?.message || 'request failed'
-  } finally {
-    loading.value = false
+// ===== Track parsing (对齐 MyTrips 的格式：[{t,lat,lon}]) =====
+function normalizeTrack(track) {
+  if (!track) return []
+  if (Array.isArray(track)) return track
+  if (typeof track === 'string') {
+    try {
+      const parsed = JSON.parse(track)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
   }
+  return []
 }
 
-function clearRouteLayer() {
-  if (routeLayer && map) {
-    routeLayer.remove()
-    routeLayer = null
+function clearForm() {
+  origin.value = ''
+  destination.value = ''
+  preference.value = 'safer'
+}
+
+function clearResults() {
+  results.value = []
+  selected.value = null
+  hasSearched.value = false
+  clearRoute()
+}
+
+// ===== Map drawing =====
+function clearRoute() {
+  if (!map) return
+
+  if (polyline) {
+    polyline.remove()
+    polyline = null
+  }
+  if (startMarker) {
+    startMarker.remove()
+    startMarker = null
+  }
+  if (endMarker) {
+    endMarker.remove()
+    endMarker = null
   }
 }
 
 function drawSelectedRoute(r) {
-  if (!map) return
+  if (!map || !r) return
 
-  clearRouteLayer()
-  if (!r) return
+  clearRoute()
 
-  // 优先：track 是 GeoJSON 字符串（LineString / Feature / FeatureCollection）
-  if (r.track) {
-    try {
-      const geo = JSON.parse(r.track)
-      routeLayer = L.geoJSON(geo)
-      routeLayer.addTo(map)
+  // 1) 优先：track 是 MyTrips 的点数组（JSON string / array）
+  const pts = normalizeTrack(r.track)
+      .filter(p => p && p.lat != null && (p.lon != null || p.lng != null))
+      .map(p => [Number(p.lat), Number(p.lon ?? p.lng)])
+      .filter(ll => !Number.isNaN(ll[0]) && !Number.isNaN(ll[1]))
 
-      const bounds = routeLayer.getBounds()
-      if (bounds && bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [20, 20] })
-      }
-      return
-    } catch (e) {
-      // track 不是合法 JSON/GeoJSON，退回用起终点 marker
-    }
+  if (pts.length >= 2) {
+    polyline = L.polyline(pts, { weight: 4 }).addTo(map)
+    startMarker = L.marker(pts[0], { title: 'Start' }).addTo(map)
+    endMarker = L.marker(pts[pts.length - 1], { title: 'End' }).addTo(map)
+
+    map.fitBounds(polyline.getBounds(), { padding: [20, 20] })
+    return
   }
 
-  // 退回：用起终点 marker
-  const pts = []
+  // 2) fallback：track 不够点，用起终点坐标画 marker
+  const fallbackPts = []
   const slat = Number(r.startLat)
   const slon = Number(r.startLon)
   const elat = Number(r.endLat)
   const elon = Number(r.endLon)
 
-  if (!Number.isNaN(slat) && !Number.isNaN(slon)) pts.push([slat, slon])
-  if (!Number.isNaN(elat) && !Number.isNaN(elon)) pts.push([elat, elon])
+  if (!Number.isNaN(slat) && !Number.isNaN(slon)) fallbackPts.push([slat, slon])
+  if (!Number.isNaN(elat) && !Number.isNaN(elon)) fallbackPts.push([elat, elon])
 
-  if (pts.length > 0) {
-    routeLayer = L.featureGroup(pts.map(p => L.marker(p))).addTo(map)
-    map.fitBounds(routeLayer.getBounds(), { padding: [20, 20] })
+  if (fallbackPts.length > 0) {
+    startMarker = L.marker(fallbackPts[0], { title: 'Start' }).addTo(map)
+    if (fallbackPts.length > 1) endMarker = L.marker(fallbackPts[1], { title: 'End' }).addTo(map)
+
+    const fg = L.featureGroup([startMarker, endMarker].filter(Boolean))
+    map.fitBounds(fg.getBounds(), { padding: [20, 20] })
   }
 }
 
-watch(selected, (r) => drawSelectedRoute(r))
+watch(selected, (r) => {
+  drawSelectedRoute(r)
+})
 
-onMounted(() => {
-  map = L.map("map").setView([45.4642, 9.19], 13);
+onMounted(async () => {
+  map = L.map('map').setView([45.4642, 9.19], 13)
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap contributors",
-  }).addTo(map);
-});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+  }).addTo(map)
+
+  // 避免容器初次渲染尺寸问题
+  await nextTick()
+  map.invalidateSize()
+})
 </script>
 
 <style scoped>
@@ -333,9 +389,6 @@ h1{
   margin-top: 16px;
   margin-bottom: 18px;   /* ✅ 强制拉开和 Results 的距离 */
 }
-
-
-
 
 /* ===== Cards: lighter, cleaner, less “pillow shadow” ===== */
 .card {
@@ -518,7 +571,7 @@ code{
 
 .map-container {
   width: 100%;
-  height: 360px;   /* 或 400px */
+  height: 360px;
   border-radius: 12px;
 }
 </style>
