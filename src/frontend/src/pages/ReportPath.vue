@@ -80,7 +80,6 @@
               <span class="badge">{{ reports.length }}</span>
             </div>
 
-            <!-- ✅ 关键：空状态也要占满高度，视觉就会和 Explore / Community 一样 -->
             <div v-if="reports.length === 0" class="empty fill">
               create a report to see it here.
             </div>
@@ -191,6 +190,7 @@ async function submit() {
 
   try {
     await updateTripReport(tripId.value, payload)
+    await loadReports()
     alert('Report saved')
   } catch (e) {
     console.error(e)
@@ -223,7 +223,6 @@ function formatDistance(km) {
   const x = Number(km || 0)
   return `${x.toFixed(2)} km`
 }
-
 
 onMounted(() => {
   tripId.value = route.query.tripId ? Number(route.query.tripId) : null

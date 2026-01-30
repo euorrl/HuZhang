@@ -18,7 +18,7 @@
 
       <div class="grid">
         <!-- Recorder -->
-        <section class="card">
+        <section class="card reportCard">
           <div class="card-title">
             <h3>Reports</h3>
             <span class="badge">{{ filteredReports.length }}</span>
@@ -523,6 +523,33 @@ input:focus{
   width: 4px;
   border-radius: 999px;
   background: rgba(37,99,235,0.75);
+}
+
+/* Reports card: fixed visible area (~4 items) with inner scroll */
+.reportCard {
+  height: 480px;           
+  display: flex;
+  flex-direction: column;
+}
+
+/* list takes remaining space and scrolls */
+.reportCard .list {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 6px;       /* 给滚动条留空间 */
+}
+
+/* optional: nicer scrollbar (works in chromium/edge) */
+.reportCard .list::-webkit-scrollbar {
+  width: 10px;
+}
+.reportCard .list::-webkit-scrollbar-thumb {
+  background: rgba(15,23,42,0.18);
+  border-radius: 999px;
+  border: 3px solid rgba(255,255,255,0.0);
+}
+.reportCard .list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 </style>
