@@ -25,36 +25,31 @@
           <label>Destination</label>
           <input v-model="destination" placeholder="e.g., Politecnico di Milano" />
 
-          <!--
-          <div class="row">
-            <label class="chk"><input type="checkbox" v-model="preferSafer" /> Prefer safer</label>
-            <label class="chk"><input type="checkbox" v-model="preferShorter" /> Prefer shorter</label>
-          </div>
-          -->
-
           <div class="row">
             <label class="chk">
               <input
-                type="radio"
-                name="preference"
-                value="safer"
-                v-model="preference"
+                  type="radio"
+                  name="preference"
+                  value="safer"
+                  v-model="preference"
               />
               Prefer safer
             </label>
 
             <label class="chk">
               <input
-                type="radio"
-                name="preference"
-                value="shorter"
-                v-model="preference"
+                  type="radio"
+                  name="preference"
+                  value="shorter"
+                  v-model="preference"
               />
               Prefer shorter
             </label>
           </div>
 
-          <button class="btn primary" @click="searchMock">Search (mock)</button>
+          <button class="btn primary" @click="searchPublic" :disabled="loading">
+            {{ loading ? 'Searching...' : 'Search' }}
+          </button>
 
           <div class="divider"></div>
 
@@ -120,17 +115,14 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { getHealth } from '../api/health'
 
-import { onMounted } from "vue";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 const origin = ref('')
 const destination = ref('')
-//const preferSafer = ref(false)
-//const preferShorter = ref(false)
 const preference = ref("safer")
 
 const results = ref([])
@@ -140,35 +132,53 @@ const loading = ref(false)
 const health = ref('')
 const err = ref('')
 
-function searchMock() {
-  const o = origin.value || 'Origin'
-  const d = destination.value || 'Destination'
+let map = null
+let routeLayer = null
 
-  // results.value = [
-  //   { id: 1, name: `Option A: ${o} → ${d}`, score: preferSafer.value ? 82 : 75, distanceKm: preferShorter.value ? 6.1 : 7.4, status: 'mostly optimal' },
-  //   { id: 2, name: `Option B: ${o} → ${d}`, score: preferSafer.value ? 78 : 72, distanceKm: preferShorter.value ? 6.8 : 8.0, status: 'medium, some potholes' },
-  // ]
-  const isSafer = preference.value === "safer"
-  const isShorter = preference.value === "shorter"
+function buildQuery(params) {
+  const qs = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v).trim() !== '') qs.set(k, v)
+  })
+  return qs.toString()
+}
 
-  results.value = [
-    {
-      id: 1,
-      name: `Option A: ${o} → ${d}`,
-      score: isSafer ? 82 : 75,
-      distanceKm: isShorter ? 6.1 : 7.4,
-      status: "mostly optimal",
-    },
-    {
-      id: 2,
-      name: `Option B: ${o} → ${d}`,
-      score: isSafer ? 78 : 72,
-      distanceKm: isShorter ? 6.8 : 8.0,
-      status: "medium, some potholes",
-    },
-  ]
+async function searchPublic() {
+  loading.value = true
+  err.value = ''
 
-  selected.value = results.value[0]
+  try {
+    const qs = buildQuery({
+      origin: origin.value,
+      destination: destination.value,
+      preference: preference.value,
+    })
+
+    const res = await fetch(`/api/explore-route/public/search?${qs}`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+    const data = await res.json()
+
+    // 映射成你 UI 现在的字段结构（不改模板）
+    results.value = (data || []).map(t => ({
+      id: t.id,
+      name: `${t.startPlaceShort || 'Origin'} → ${t.endPlaceShort || 'Destination'}`,
+      score: t.safetyRating ?? '-',                     // score 用 safety_rating
+      distanceKm: t.distanceKm ?? '-',                  // km
+      status: `cond ${t.conditionRating ?? '-'} / safe ${t.safetyRating ?? '-'}`,
+      track: t.track,
+      startLat: t.startLat,
+      startLon: t.startLon,
+      endLat: t.endLat,
+      endLon: t.endLon,
+    }))
+
+    selected.value = results.value[0] || null
+  } catch (e) {
+    err.value = e?.message || 'request failed'
+  } finally {
+    loading.value = false
+  }
 }
 
 async function checkHealth() {
@@ -184,8 +194,56 @@ async function checkHealth() {
   }
 }
 
+function clearRouteLayer() {
+  if (routeLayer && map) {
+    routeLayer.remove()
+    routeLayer = null
+  }
+}
+
+function drawSelectedRoute(r) {
+  if (!map) return
+
+  clearRouteLayer()
+  if (!r) return
+
+  // 优先：track 是 GeoJSON 字符串（LineString / Feature / FeatureCollection）
+  if (r.track) {
+    try {
+      const geo = JSON.parse(r.track)
+      routeLayer = L.geoJSON(geo)
+      routeLayer.addTo(map)
+
+      const bounds = routeLayer.getBounds()
+      if (bounds && bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [20, 20] })
+      }
+      return
+    } catch (e) {
+      // track 不是合法 JSON/GeoJSON，退回用起终点 marker
+    }
+  }
+
+  // 退回：用起终点 marker
+  const pts = []
+  const slat = Number(r.startLat)
+  const slon = Number(r.startLon)
+  const elat = Number(r.endLat)
+  const elon = Number(r.endLon)
+
+  if (!Number.isNaN(slat) && !Number.isNaN(slon)) pts.push([slat, slon])
+  if (!Number.isNaN(elat) && !Number.isNaN(elon)) pts.push([elat, elon])
+
+  if (pts.length > 0) {
+    routeLayer = L.featureGroup(pts.map(p => L.marker(p))).addTo(map)
+    map.fitBounds(routeLayer.getBounds(), { padding: [20, 20] })
+  }
+}
+
+watch(selected, (r) => drawSelectedRoute(r))
+
 onMounted(() => {
-  const map = L.map("map").setView([45.4642, 9.19], 13);
+  map = L.map("map").setView([45.4642, 9.19], 13);
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap contributors",
