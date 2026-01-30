@@ -149,9 +149,8 @@ function logout() {
 const savedId = localStorage.getItem('bbp_userId')
 if (savedId) {
   userId.value = Number(savedId)
-  authMode.value = localStorage.getItem('bbp_authMode') || 'LOGIN'
-  // 你现有 store 是一个开关，所以直接置为 logged-in
-  loginMock()
+  authMode.value = localStorage.getItem('bbp_authMode') || 'REGISTERED'
+
 }
 </script>
 

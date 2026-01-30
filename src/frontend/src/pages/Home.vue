@@ -46,12 +46,12 @@
 
         <section class="card">
           <div class="card-title">
-            <h3>Privacy</h3>
+            <h3>Community</h3>
             <span class="badge soft">policy</span>
           </div>
 
           <p class="muted">
-            Your reports can be <b>Private</b> (only you) or <b>Public</b> (shared with the community).
+            You can share and obtain cycling routes.
           </p>
         </section>
       </div>
