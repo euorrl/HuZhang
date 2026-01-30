@@ -36,3 +36,9 @@ export async function fetchReportsByUser(userId) {
   const res = await axios.get(`${API_BASE}/trips/reports`, { params: { userId } })
   return res.data
 }
+
+export async function fetchPublicTrips() {
+  const res = await axios.get(`${API_BASE}/trips/public`)
+  return res.data
+}
+

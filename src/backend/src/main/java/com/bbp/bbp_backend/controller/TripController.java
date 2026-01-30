@@ -56,4 +56,11 @@ public class TripController {
         return tripMapper.findReportsByUser(userId);
     }
 
+    @GetMapping("/public")
+    public List<Map<String, Object>> getPublicTrips() {
+        return tripMapper.findPublicTrips();
+    }
+
+
+
 }

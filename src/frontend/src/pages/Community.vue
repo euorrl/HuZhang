@@ -8,55 +8,72 @@
         </div>
         <div class="chips">
           <span class="chip">PUBLIC</span>
-          <span class="chip soft">{{ filteredPaths.length }} paths</span>
         </div>
       </div>
 
-      <section class="card searchCard">
+      <section class="c searchC">
         <label>Search by street / area</label>
-        <input v-model="q" placeholder="e.g., Via Torino" />
+        <input v-model="q" placeholder="e.g., Via Giuseppe Ponzio" />
       </section>
 
       <div class="grid">
-        <section class="card">
-          <div class="card-title">
-            <h3>Bike paths</h3>
-            <span class="badge">{{ filteredPaths.length }}</span>
-          </div>
-
-          <div v-if="filteredPaths.length === 0" class="empty">No matching paths.</div>
-
-          <div class="list" v-else>
-            <div class="item" v-for="p in filteredPaths" :key="p.id">
-              <div class="title">{{ p.name }}</div>
-              <div class="meta">{{ p.summary }} • reports: {{ p.reports.length }}</div>
-              <button class="btn tiny" @click="selectedPath = p">See reports</button>
-            </div>
-          </div>
-        </section>
-
+        <!-- Recorder -->
         <section class="card">
           <div class="card-title">
             <h3>Reports</h3>
-            <span class="badge soft" v-if="selectedPath">{{ selectedPath.reports.length }}</span>
-            <span class="badge" v-else>0</span>
+            <span class="badge">{{ filteredReports.length }}</span>
           </div>
 
-          <div v-if="!selectedPath" class="empty">
-            Select a bike path to see reports.
-          </div>
+          <div class="list" v-if="filteredReports.length">
+            <div
+              class="item"
+              v-for="r in filteredReports"
+              :key="r.id"
+              @click="openReport(r)"
+              :class="{ active: selectedReportId === r.id }"
+            >
+              <div class="left">
+                <div class="title">
+                  {{ r.startPlaceShort }} - {{ r.endPlaceShort }}
+                </div>
 
-          <div v-else class="reports">
-            <div class="rep" v-for="r in selectedPath.reports" :key="r.id">
-              <div class="repTop">
-                <span class="pill">{{ r.publishStatus }}</span>
-                <span class="muted">{{ r.createdAt }}</span>
+                <div class="meta">
+                  Condition {{ r.conditionRating }}/5
+                  • Safety {{ r.safetyRating }}/5
+                  • {{ Number(r.distanceKm || 0).toFixed(2) }} km
+                  • {{ formatDuration(r.durationSec) }}
+                  • {{ (r.date || '').slice(0, 10) }}
+                </div>
+
+                <div class="muted" style="margin-top:8px;" v-if="r.notes">
+                  {{ r.notes }}
+                </div>
+                <div class="muted" style="margin-top:8px;" v-else>
+                  (no notes)
+                </div>
               </div>
-              <div class="repMeta">
-                Condition: <b>{{ r.conditionRating }}</b> / 5 • Safety: <b>{{ r.safetyRating }}</b> / 5
-              </div>
-              <div class="notes">{{ r.notes }}</div>
             </div>
+          </div>
+          <div class="empty" v-else>
+            No public reports found.
+          </div>
+        </section>
+
+        <!-- Map -->
+        <section class="card">
+          <div class="card-title">
+            <h3>Trip details</h3>
+            <span class="badge soft">map preview</span>
+          </div>
+            <div class="mapbox">
+            <div
+              id="tripMap"
+              style="
+                height: 100%;
+                width: 100%;
+                border-radius: 12px;
+              "
+            ></div>
           </div>
         </section>
       </div>
@@ -65,10 +82,14 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import { fetchPublicTrips, fetchTripById } from '../api/trips'
 
 const q = ref('')
-const selectedPath = ref(null)
+const reports = ref([])
+const selectedReportId = ref(null)
 
 const paths = ref([
   {
@@ -90,10 +111,154 @@ const paths = ref([
   },
 ])
 
-const filteredPaths = computed(() => {
+const filteredReports = computed(() => {
   const s = q.value.trim().toLowerCase()
-  if (!s) return paths.value
-  return paths.value.filter(p => p.name.toLowerCase().includes(s) || p.summary.toLowerCase().includes(s))
+  if (!s) return reports.value
+  return reports.value.filter(r => {
+    const name = `${r.startPlaceShort || ''} ${r.endPlaceShort || ''}`.toLowerCase()
+    const notes = (r.notes || '').toLowerCase()
+    return name.includes(s) || notes.includes(s)
+  })
+})
+
+let map = null
+let polyline = null
+let startMarker = null
+let endMarker = null
+
+function resetPolyline() {
+  if (!map) return
+  if (polyline) {
+    polyline.remove()
+    polyline = null
+  }
+  polyline = L.polyline([], { weight: 4, color: 'red' }).addTo(map)
+}
+
+function clearMarkers() {
+  if (startMarker) { startMarker.remove(); startMarker = null }
+  if (endMarker) { endMarker.remove(); endMarker = null }
+}
+
+function setStartMarker(p) {
+  if (!map) return
+  if (startMarker) startMarker.remove()
+  startMarker = L.marker([p.lat, p.lon], { title: 'Start' }).addTo(map)
+}
+
+function setEndMarker(p) {
+  if (!map) return
+  if (endMarker) endMarker.remove()
+  endMarker = L.marker([p.lat, p.lon], { title: 'End' }).addTo(map)
+}
+
+function renderTripOnMap(trackPoints) {
+  if (!map) return
+
+  resetPolyline()
+  clearMarkers()
+
+  if (!trackPoints || trackPoints.length === 0) return
+
+  const latlngs = trackPoints
+    .filter(p => p && p.lat != null && p.lon != null)
+    .map(p => [p.lat, p.lon])
+
+  if (latlngs.length === 0) return
+
+  polyline.setLatLngs(latlngs)
+
+  const start = trackPoints[0]
+  const end = trackPoints[trackPoints.length - 1]
+  setStartMarker(start)
+  setEndMarker(end)
+
+  map.fitBounds(polyline.getBounds(), { padding: [20, 20] })
+}
+
+function initMap() {
+  if (map) return
+
+  const el = document.getElementById('tripMap')
+  if (!el) return
+
+  const center = [45.4781, 9.2270]
+  const zoom = 13
+
+  map = L.map('tripMap', {
+    zoomControl: true,
+  }).setView(center, zoom)
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors',
+  }).addTo(map)
+
+  setTimeout(() => {
+    map && map.invalidateSize()
+  }, 50)
+
+  resetPolyline()
+
+}
+
+async function loadPublicTrips() {
+  console.log('[community] loading public trips...')
+  try {
+    const data = await fetchPublicTrips()
+    console.log('[community] got', data)
+    reports.value = data
+  } catch (e) {
+    console.error('loadPublicTrips failed', e)
+    reports.value = []
+  }
+}
+
+function formatDuration(sec) {
+  const s = Number(sec || 0)
+  if (!Number.isFinite(s) || s <= 0) return '0m 0s'
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return `${m}m ${r}s`
+}
+
+async function loadReports() {
+  reports.value = await fetchPublicTrips()
+}
+
+function normalizeTrack(track) {
+  if (!track) return []
+  if (Array.isArray(track)) return track
+  if (typeof track === 'string') {
+    try { return JSON.parse(track) } catch { return [] }
+  }
+  return []
+}
+
+async function openReport(r) {
+  try {
+    selectedReportId.value = r.id
+
+    const full = await fetchTripById(r.id)   // ✅ 现在有 import 了
+    const trackPoints = normalizeTrack(full.track)
+
+    renderTripOnMap(trackPoints)
+  } catch (e) {
+    console.error('openReport failed:', e)
+    alert('Failed to load report detail')
+  }
+}
+
+onMounted(() => {
+  initMap()
+  loadPublicTrips()
+})
+
+onBeforeUnmount(() => {
+  if (map) {
+    map.remove()
+    map = null
+  }
 })
 </script>
 
@@ -162,29 +327,19 @@ h1{ margin:0; color: rgba(15,23,42,0.92); }
 }
 .chip.soft{ background: rgba(147,197,253,0.18); border-color: rgba(147,197,253,0.30); }
 
-.card {
+.c {
   overflow: hidden;      /* ✅ 防止阴影/内部元素造成“视觉重叠” */
 }
-.searchCard{ margin-top: 16px; }
+.searchC{ margin-top: 16px; }
 
-.card-title{
+.c-title{
   display:flex;
   align-items:center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
 }
-.card h3{ margin: 0; color: rgba(15,23,42,0.90); }
-.badge{
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.55);
-  border: 1px solid rgba(15,23,42,0.10);
-  font-size: 12px;
-  font-weight: 900;
-  color: rgba(15,23,42,0.70);
-}
-.badge.soft{ background: rgba(147,197,253,0.16); border-color: rgba(147,197,253,0.28); }
+.c h3{ margin: 0; color: rgba(15,23,42,0.90); }
 
 label{
   display:block;
@@ -279,4 +434,95 @@ input:focus{
 @media (max-width: 1000px){
   .grid{ grid-template-columns: 1fr; }
 }
+
+/* ===== Cards ===== */
+.card{
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(255,255,255,0.40);
+  border: 1px solid rgba(15,23,42,0.10);
+  box-shadow: 0 18px 46px rgba(0,0,0,0.14);
+  overflow: hidden;
+}
+.card-title{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.card h3{ margin: 0; color: rgba(15,23,42,0.90); }
+
+/* badges */
+.badge{
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(15,23,42,0.10);
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(15,23,42,0.70);
+}
+.badge.soft{ background: rgba(147,197,253,0.16); border-color: rgba(147,197,253,0.28); }
+.badge.warn{ background: rgba(245,158,11,0.16); border-color: rgba(245,158,11,0.26); }
+
+.mapbox{
+  height: 360px;        /* ✅ 你可以调成 380/420 */
+  margin-top: 10px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.25);
+  border: 1px solid rgba(15,23,42,0.10);
+}
+
+.card{
+  display: flex;
+  flex-direction: column;
+}
+.mapbox{
+  flex: 1;
+  min-height: 340px;
+}
+
+.grid {
+  margin-top: 18px;
+}
+
+/* ===== clickable list item (Community) ===== */
+.item {
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+/* hover */
+.item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 40px rgba(0,0,0,0.14);
+  border-color: rgba(37,99,235,0.25);
+}
+
+/* selected */
+.item.active {
+  background: rgba(37,99,235,0.08);
+  border-color: rgba(37,99,235,0.35);
+  box-shadow: 0 22px 54px rgba(37,99,235,0.18);
+  position: relative;
+}
+
+/* left accent bar */
+.item.active::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  border-radius: 999px;
+  background: rgba(37,99,235,0.75);
+}
+
 </style>

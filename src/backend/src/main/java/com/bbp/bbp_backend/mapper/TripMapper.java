@@ -94,4 +94,23 @@ public interface TripMapper {
                     "ORDER BY date DESC, id DESC"
     )
     List<Map<String, Object>> findReportsByUser(@Param("userId") long userId);
+
+    @Select(
+            "SELECT id, date, " +
+                    "       start_place_short AS \"startPlaceShort\", " +
+                    "       end_place_short AS \"endPlaceShort\", " +
+                    "       condition_rating AS \"conditionRating\", " +
+                    "       safety_rating AS \"safetyRating\", " +
+                    "       notes, " +
+                    "       is_public AS \"isPublic\", " +
+                    "       distance_km AS \"distanceKm\", " +
+                    "       duration_sec AS \"durationSec\", " +
+                    "       track, " +
+                    "       created_by AS \"createdBy\" " +
+                    "FROM trips " +
+                    "WHERE is_public = TRUE " +
+                    "ORDER BY date DESC, id DESC"
+    )
+    List<Map<String, Object>> findPublicTrips();
+
 }
