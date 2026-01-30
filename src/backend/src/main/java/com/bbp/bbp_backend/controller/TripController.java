@@ -33,4 +33,27 @@ public class TripController {
         return tripMapper.findTripById(id);
     }
 
+    @PutMapping("/{id}/report")
+    public Map<String, Object> updateTripReport(@PathVariable long id,
+                                                @RequestBody Map<String, Object> body) {
+
+        int conditionRating = ((Number) body.getOrDefault("conditionRating", 0)).intValue();
+        int safetyRating = ((Number) body.getOrDefault("safetyRating", 0)).intValue();
+        String notes = (String) body.getOrDefault("notes", "");
+        int isPublic = ((Number) body.getOrDefault("isPublic", 0)).intValue();
+
+        int updated = tripMapper.updateTripReport(id, conditionRating, safetyRating, notes, isPublic);
+        if (updated == 0) {
+            throw new RuntimeException("Trip not found: " + id);
+        }
+
+        // 返回更新后的 trip，前端更方便
+        return tripMapper.findTripById(id);
+    }
+
+    @GetMapping("/reports")
+    public List<Map<String, Object>> getReports(@RequestParam long userId) {
+        return tripMapper.findReportsByUser(userId);
+    }
+
 }

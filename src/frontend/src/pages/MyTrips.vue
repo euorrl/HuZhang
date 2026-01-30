@@ -144,6 +144,9 @@
               <div class="right">
                 <span class="pill">{{ t.durationSec }}s</span>
                 <span class="pill">{{ t.distanceKm.toFixed(1) }}km</span>
+                <button class="pill-btn" @click.stop="goReport(t)">
+                  Publish
+                </button>
               </div>
             </div>
           </div>
@@ -212,6 +215,7 @@ import 'leaflet/dist/leaflet.css'
 
 import { gpsStart, gpsNext, gpsStop } from '../api/gps'
 import { createTrip, fetchTripsByUser, fetchTripById } from '../api/trips'
+import { useRouter } from 'vue-router' 
 
 const recording = ref(false)
 const seconds = ref(0)
@@ -220,6 +224,7 @@ const selectedTripId = ref(null)
 
 const trips = ref([])
 let timer = null
+const router = useRouter()
 
 // ---- GPS track ----
 const points = ref([]) // {t, lat, lon}[]
@@ -467,6 +472,13 @@ async function openTrip(t) {
     alert('Failed to load trip detail')
   }
 }
+
+function goReport(trip) {
+  const id = Number(trip?.id)
+  if (!id) return
+  router.push({ path: '/report', query: { tripId: id } })
+}
+
 
 async function start() {
   if (recording.value) return
@@ -928,6 +940,25 @@ h1{
   width: 4px;
   border-radius: 999px;
   background: rgba(37,99,235,0.75);
+}
+
+.right{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+
+.pill-btn{
+  border: none;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  background: rgba(151, 164, 248, 0.65);
+}
+
+.pill-btn:hover{
+  background: rgba(69, 63, 244, 0.85);
 }
 
 </style>

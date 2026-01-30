@@ -38,30 +38,38 @@
               <span class="badge">form</span>
             </div>
 
-            <label>Bike path / street</label>
-            <input v-model="pathName" placeholder="e.g., Via Torino" />
-
+            <label>Trip</label>
+            <input
+              v-model="tripLabel"
+              placeholder="Select a trip from history..."
+              readonly
+              class="readonly"
+            />
             <div class="two">
               <div>
                 <label>Condition (1–5)</label>
-                <input type="number" min="1" max="5" v-model.number="condition" />
+                <select v-model.number="condition">
+                  <option :value="0" disabled>Select rating</option>
+                  <option v-for="n in 5" :key="n" :value="n">{{ n }}</option>
+                </select>
               </div>
+
               <div>
                 <label>Safety (1–5)</label>
-                <input type="number" min="1" max="5" v-model.number="safety" />
+                <select v-model.number="safety">
+                  <option :value="0" disabled>Select rating</option>
+                  <option v-for="n in 5" :key="n" :value="n">{{ n }}</option>
+                </select>
               </div>
             </div>
 
-            <label>Notes</label>
-            <textarea v-model="notes" rows="4" placeholder="e.g., potholes near the intersection..."></textarea>
-
-            <label class="chk">
-              <input type="checkbox" v-model="isPublic" />
-              Publish to community (PUBLIC)
-            </label>
-
-            <button class="btn primary" @click="submitMock">Submit (mock)</button>
-
+            <div>
+              <label>Notes</label>
+              <textarea v-model="notes" rows="4" placeholder="e.g., potholes near the intersection..."></textarea>
+            </div>
+            <div>
+              <button class="btn primary" @click="submit">Submit</button>
+            </div>
             <p v-if="msg" class="state okText">{{ msg }}</p>
           </section>
 
@@ -74,10 +82,10 @@
 
             <!-- ✅ 关键：空状态也要占满高度，视觉就会和 Explore / Community 一样 -->
             <div v-if="reports.length === 0" class="empty fill">
-              Select or create a report to see it here.
+              create a report to see it here.
             </div>
 
-            <div class="list" v-else>
+            <!-- <div class="list" v-else>
               <div class="item" v-for="r in reports" :key="r.id">
                 <div class="left">
                   <div class="title">{{ r.pathName }}</div>
@@ -91,7 +99,37 @@
                   {{ r.publishStatus }}
                 </span>
               </div>
+            </div> -->
+            <div class="list" v-else>
+              <div class="item" v-for="r in reports" :key="r.id">
+                <div class="left">
+                  <!-- 标题：起点 - 终点 -->
+                  <div class="title">
+                    {{ r.startPlaceShort }} - {{ r.endPlaceShort }}
+                  </div>
+
+                  <!-- meta：PUBLIC + 评分 + 日期 -->
+                  <div class="meta">
+                    Condition {{ r.conditionRating }}/5
+                    • Safety {{ r.safetyRating }}/5
+                    • {{ formatDistance(r.distanceKm) }}
+                    • {{ formatDuration(r.durationSec) }}
+                    • {{ r.date }}
+                  </div>
+
+                  <!-- notes（可能为空） -->
+                  <div class="muted" style="margin-top:8px;" v-if="r.notes">
+                    {{ r.notes }}
+                  </div>
+                  <div class="muted" style="margin-top:8px;" v-else>
+                    (no notes)
+                  </div>
+                </div>
+
+                <span class="pill pub">PUBLIC</span>
+              </div>
             </div>
+
           </section>
         </div>
       </template>
@@ -100,35 +138,104 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
 import { isLoggedIn } from '../store/session'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { fetchTripById, updateTripReport, fetchReportsByUser } from '../api/trips'
 
 const pathName = ref('')
-const condition = ref(3)
-const safety = ref(3)
+const condition = ref(0)
+const safety = ref(0)
 const notes = ref('')
 const isPublic = ref(false)
 const msg = ref('')
-
 const reports = ref([])
 
-function submitMock() {
-  const record = {
-    id: Date.now(),
-    pathName: pathName.value || 'Unnamed path',
-    condition: condition.value,
-    safety: safety.value,
-    notes: notes.value || '(no notes)',
-    publishStatus: isPublic.value ? 'PUBLIC' : 'PRIVATE',
-    createdAt: new Date().toISOString().slice(0, 10),
-  }
-  reports.value.unshift(record)
-  msg.value = `Saved (mock): ${record.pathName} • ${record.publishStatus}`
+const route = useRoute()
+const tripId = ref(null)
+const tripLabel = ref('')
 
-  pathName.value = ''
-  notes.value = ''
-  isPublic.value = false
+async function loadTripLabel(id) {
+  if (!id) { tripLabel.value = ''; return }
+
+  try {
+    const trip = await fetchTripById(id)
+
+    // 后端保存的字段名（看你 MyTrips stop() payload）
+    const o = trip?.startPlaceShort || 'Origin'
+    const d = trip?.endPlaceShort || 'Destination'
+    tripLabel.value = `${o} - ${d}`
+  } catch (e) {
+    console.error('loadTripLabel failed', e)
+    tripLabel.value = ''
+  }
 }
+
+async function submit() {
+  if (!tripId.value) {
+    alert('No trip selected')
+    return
+  }
+
+  if (condition.value === 0 || safety.value === 0) {
+    alert('Please select condition and safety (1–5)')
+    return
+  }
+
+  const payload = {
+    conditionRating: condition.value,
+    safetyRating: safety.value,
+    notes: notes.value || '',
+    isPublic: 1,
+  }
+
+  try {
+    await updateTripReport(tripId.value, payload)
+    alert('Report saved')
+  } catch (e) {
+    console.error(e)
+    alert('Failed to save report')
+  }
+}
+
+async function loadReports() {
+  const userId = Number(localStorage.getItem('bbp_userId'))
+  if (!userId) {
+    reports.value = []
+    return
+  }
+  try {
+    reports.value = await fetchReportsByUser(userId)
+  } catch (e) {
+    console.error('loadReports failed', e)
+    reports.value = []
+  }
+}
+
+function formatDuration(sec) {
+  const s = Number(sec || 0)
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return `${m}m ${String(r).padStart(2, '0')}s`
+}
+
+function formatDistance(km) {
+  const x = Number(km || 0)
+  return `${x.toFixed(2)} km`
+}
+
+
+onMounted(() => {
+  tripId.value = route.query.tripId ? Number(route.query.tripId) : null
+  loadTripLabel(tripId.value)
+  loadReports()
+})
+
+watch(() => route.query.tripId, async(v) => {
+  tripId.value = v ? Number(v) : null
+  await loadReports()
+  loadTripLabel(tripId.value)
+})
 </script>
 
 <style scoped>
@@ -382,4 +489,19 @@ input, textarea{
   .grid{ grid-template-columns: 1fr; }
   .two{ grid-template-columns: 1fr; }
 }
+
+.readonly{
+  background: rgba(193, 193, 193, 0.8);
+  cursor: not-allowed;
+}
+
+select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #c5c5c5;
+  background: #c6c5c5;
+}
+
+
 </style>

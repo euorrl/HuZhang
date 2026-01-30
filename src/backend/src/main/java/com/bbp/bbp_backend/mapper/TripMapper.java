@@ -38,4 +38,28 @@ public interface TripMapper {
     @Select("SELECT * FROM trips WHERE id = #{id}")
     Map<String, Object> findTripById(@Param("id") long id);
 
+    @Update(
+            "UPDATE trips SET " +
+                    "  conditionRating = #{conditionRating}, " +
+                    "  safetyRating = #{safetyRating}, " +
+                    "  notes = #{notes}, " +
+                    "  isPublic = #{isPublic} " +
+                    "WHERE id = #{id}"
+    )
+    int updateTripReport(@Param("id") long id,
+                         @Param("conditionRating") int conditionRating,
+                         @Param("safetyRating") int safetyRating,
+                         @Param("notes") String notes,
+                         @Param("isPublic") int isPublic);
+
+    @Select(
+            "SELECT id, date, startPlaceShort, endPlaceShort, " +
+                    "       conditionRating, safetyRating, notes, isPublic, " +
+                    "       distanceKm, durationSec " +          // ✅ 新增
+                    "FROM trips " +
+                    "WHERE createdBy = #{userId} AND isPublic = 1 " +
+                    "ORDER BY date DESC, id DESC"
+    )
+    List<Map<String, Object>> findReportsByUser(@Param("userId") long userId);
+
 }

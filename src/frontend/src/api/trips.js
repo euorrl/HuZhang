@@ -21,3 +21,18 @@ export async function fetchTripById(id) {
   const res = await axios.get(`${API_BASE}/trips/${id}`)
   return res.data
 }
+
+// 更新 trip 的 report 信息
+export async function updateTripReport(tripId, payload) {
+  const res = await axios.put(
+    `${API_BASE}/trips/${tripId}/report`,
+    payload,
+    { headers: { 'Content-Type': 'application/json' } }
+  )
+  return res.data
+}
+
+export async function fetchReportsByUser(userId) {
+  const res = await axios.get(`${API_BASE}/trips/reports`, { params: { userId } })
+  return res.data
+}
