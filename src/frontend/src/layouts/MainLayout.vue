@@ -1,7 +1,10 @@
 <template>
   <div class="app">
     <header class="topbar">
-      <div class="brand">BBP</div>
+      <RouterLink to="/" class="brand" @click="closeMenu">
+        BBP
+      </RouterLink>
+
 
       <!-- mobile burger -->
       <button class="burger" @click="menuOpen = !menuOpen" aria-label="Toggle menu">
@@ -207,5 +210,11 @@ watch(
     z-index: 998;
     background: transparent;
   }
+
+  .brand {
+    text-decoration: none;
+    cursor: pointer;
+  }
+
 }
 </style>
