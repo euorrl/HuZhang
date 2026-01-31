@@ -70,33 +70,33 @@ src/
     Vue 3 frontend source code
 
 ---
-
 ## Acceptance Testing Infrastructure
 
-This project can be tested using:
+This project can be tested using the following environments:
 
-Desktop web browsers (Chrome, Firefox, Edge)
-
-Mobile browsers (Android / iOS)
-
-Android Emulator
-
-iOS Emulator (macOS)
+- **Desktop web browsers** (Chrome, Firefox, Edge)
+- **Mobile browsers** (Android / iOS)
+- **Android Emulator**
+- **iOS Emulator** (macOS)
 
 All core system functions are accessible through the web interface.
 
 ---
-
 ## Deployment
 
 - **Frontend**
-
   - Connected to GitHub
-
-  - Automatically deployed by Vercel on each push to main
+  - Automatically deployed by Vercel on each push to the `main` branch
 
 - **Backend**
-
   - Connected to GitHub
-
   - Automatically built and deployed by Railway
+
+---
+## How to Access
+
+The application can be accessed directly through a web browser:
+
+- **Web URL**: https://hu-zhang.vercel.app
+
+For full functionality (recording trips and publishing routes), users need to log in using the prototype login page.
