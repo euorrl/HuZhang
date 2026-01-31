@@ -53,21 +53,7 @@ The platform allows users to explore, record, and share cycling routes, combinin
 - **Database**  
   - Supabase (PostgreSQL)
 
----
 
-## Project Structure
-
-```text
-DeliveryFolder/
-  Contains final deliverables (RASD and DD in PDF format)
-
-src/
-  backend/
-    springboot/
-      Spring Boot backend source code
-
-  frontend/
-    Vue 3 frontend source code
 
 ---
 ## Acceptance Testing Infrastructure
@@ -100,3 +86,20 @@ The application can be accessed directly through a web browser:
 - **Web URL**: https://hu-zhang.vercel.app
 
 For full functionality (recording trips and publishing routes), users need to log in using the prototype login page.
+
+
+---
+
+## Project Structure
+
+```text
+DeliveryFolder/
+  Contains final deliverables (RASD, DD and ITD in PDF format)
+
+src/
+  backend/
+    springboot/
+      Spring Boot backend source code
+
+  frontend/
+    Vue 3 frontend source code
