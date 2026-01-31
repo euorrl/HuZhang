@@ -140,6 +140,8 @@ import { ref, onMounted, watch, nextTick } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL
+
 // ===== State =====
 const origin = ref('')
 const destination = ref('')
@@ -179,7 +181,7 @@ async function searchPublic() {
       preference: preference.value,
     })
 
-    const res = await fetch(`/api/explore-route/public/search?${qs}`)
+    const res = await fetch(`${API_BASE}/api/explore-route/public/search?${qs}`)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
     const data = await res.json()
