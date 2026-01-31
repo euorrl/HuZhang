@@ -3,18 +3,30 @@
     <header class="topbar">
       <div class="brand">BBP</div>
 
-      <nav class="nav">
-        <RouterLink to="/">Home</RouterLink>
-        <RouterLink to="/explore">Explore Routes</RouterLink>
-        <RouterLink to="/community">Community</RouterLink>
+      <!-- mobile burger -->
+      <button class="burger" @click="menuOpen = !menuOpen" aria-label="Toggle menu">
+        ☰
+      </button>
 
-        <RouterLink to="/trips" :class="{ disabled: !isLoggedIn }">My Trips</RouterLink>
-        <RouterLink to="/report" :class="{ disabled: !isLoggedIn }">Report Path</RouterLink>
+      <nav class="nav" :class="{ open: menuOpen }">
+        <RouterLink to="/" @click="closeMenu">Home</RouterLink>
+        <RouterLink to="/explore" @click="closeMenu">Explore Routes</RouterLink>
+        <RouterLink to="/community" @click="closeMenu">Community</RouterLink>
 
-        <RouterLink to="/login">Login</RouterLink>
+        <RouterLink to="/trips" :class="{ disabled: !isLoggedIn }" @click="closeMenu">
+          My Trips
+        </RouterLink>
+        <RouterLink to="/report" :class="{ disabled: !isLoggedIn }" @click="closeMenu">
+          Report Path
+        </RouterLink>
 
-        <button class="ghost" v-if="isLoggedIn" @click="logoutMock">Logout</button>
+        <RouterLink to="/login" @click="closeMenu">Login</RouterLink>
+
+        <button class="ghost" v-if="isLoggedIn" @click="logoutAndClose">Logout</button>
       </nav>
+
+      <!-- click outside to close (mobile) -->
+      <div class="backdrop" v-if="menuOpen" @click="menuOpen = false"></div>
     </header>
 
     <main class="content">
@@ -24,11 +36,32 @@
 </template>
 
 <script setup>
+import { ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { isLoggedIn, logoutMock } from '../store/session'
+
+const menuOpen = ref(false)
+const route = useRoute()
+
+function closeMenu() {
+  menuOpen.value = false
+}
+
+function logoutAndClose() {
+  logoutMock()
+  closeMenu()
+}
+
+// 路由变化时自动关菜单（比如手势返回/代码跳转）
+watch(
+    () => route.fullPath,
+    () => {
+      menuOpen.value = false
+    }
+)
 </script>
 
 <style scoped>
-
 .app {
   font-family: Arial, sans-serif;
   min-height: 100vh;
@@ -65,7 +98,13 @@ import { isLoggedIn, logoutMock } from '../store/session'
 
 .brand { font-weight: 800; letter-spacing: 0.5px; color: rgba(255,255,255,0.92); }
 
-.nav { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+/* ===== Desktop nav (unchanged) ===== */
+.nav {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 .nav a {
   text-decoration: none;
   color: rgba(255,255,255,0.82);
@@ -78,6 +117,7 @@ import { isLoggedIn, logoutMock } from '../store/session'
   border: 1px solid rgba(147,197,253,0.28);
 }
 .nav a.disabled { opacity: 0.45; pointer-events: none; }
+
 .ghost {
   border: 1px solid rgba(255,255,255,0.18);
   background: rgba(255,255,255,0.10);
@@ -85,6 +125,24 @@ import { isLoggedIn, logoutMock } from '../store/session'
   padding: 6px 10px;
   border-radius: 999px;
   cursor: pointer;
+}
+
+/* ===== Mobile burger ===== */
+.burger {
+  display: none;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.92);
+  padding: 6px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+/* click-outside backdrop (mobile only) */
+.backdrop {
+  display: none;
 }
 
 /* content 改成全宽，真正铺满背景 */
@@ -100,5 +158,54 @@ import { isLoggedIn, logoutMock } from '../store/session'
   margin: 0 auto;
 }
 
+/* ===== Mobile layout ===== */
+@media (max-width: 768px) {
+  .burger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
 
+  /* nav becomes dropdown panel */
+  .nav {
+    position: fixed;
+    top: 56px;
+    left: 12px;
+    right: 12px;
+    z-index: 999;
+
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+
+    padding: 12px;
+    border-radius: 18px;
+
+    background: rgba(20, 30, 45, 0.85);
+    backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 18px 46px rgba(0,0,0,0.35);
+  }
+
+  .nav.open {
+    display: flex;
+  }
+
+  .nav a, .ghost {
+    width: 100%;
+    text-align: center;
+    padding: 10px 12px;
+    border-radius: 14px;
+  }
+
+  /* backdrop covers page to allow tap-outside */
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 998;
+    background: transparent;
+  }
+}
 </style>
