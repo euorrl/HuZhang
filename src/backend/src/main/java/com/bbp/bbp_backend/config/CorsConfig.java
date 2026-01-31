@@ -13,12 +13,14 @@ public class CorsConfig {
         return new WebMvcConfigurer() {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
-                registry.addMapping("/**")
-                        .allowedOrigins("http://localhost:5173",
-                                "https://hu-zhang.vercel.app")
-                        .allowedMethods("*")
+                registry.addMapping("/api/**")
+                        .allowedOrigins(
+                                "http://localhost:5173",
+                                "https://hu-zhang.vercel.app"
+                        )
+                        .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                         .allowedHeaders("*")
-                        .allowCredentials(true)
+                        .allowCredentials(false)
                         .maxAge(3600);
             }
         };
