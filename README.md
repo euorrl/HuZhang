@@ -1,19 +1,70 @@
 # Best Bike Paths (BBP)
 
-This repository contains the project developed for the course
+Best Bike Paths (BBP) is a prototype web system developed for the course  
 **Software Engineering 2 – A.Y. 2025–2026**.
+
+The platform allows users to explore, record, and share cycling routes, combining community-generated data with map-based visualization and basic safety and condition reporting.
+
+---
+
+## Live Demo
+
+- **Frontend (Vercel)**  
+  https://hu-zhang.vercel.app
+
+- **Backend API (Railway)**  
+  https://huzhang-production.up.railway.app  
+  Health check: `https://huzhang-production.up.railway.app/api/health`
+
+---
+
+## Main Features
+
+- **Explore Routes**  
+  Search public routes by origin/destination and view them on an interactive map, with distance and safety/condition indicators.
+
+- **Community**  
+  Browse routes published by other users and visualize their recorded paths.
+
+- **My Trips**  
+  Record personal trips (mock GPS), view history, and display full route geometry on the map.
+
+- **Report Path**  
+  Publish personal trips as public routes with safety and condition ratings.
+
+- **Login (Mock Authentication)**  
+  Prototype login system for enabling user-specific features.
+
+---
+
+## Technology Stack
+
+- **Frontend**  
+  - Vue 3 + Vite  
+  - Leaflet (map visualization)  
+  - Deployed on Vercel
+
+- **Backend**  
+  - Java 8  
+  - Spring Boot (Maven)  
+  - REST API  
+  - Deployed on Railway
+
+- **Database**  
+  - Supabase (PostgreSQL)
+
+---
 
 ## Project Structure
 
-- `DeliveryFolder/`  
-  Contains the final deliverables submitted for evaluation (RASD and DD in PDF format).
+```text
+DeliveryFolder/
+  Contains final deliverables (RASD and DD in PDF format)
 
-- `src/`  
-  Contains the source code of the BBP system implementation.
+src/
+  backend/
+    springboot/
+      Spring Boot backend source code
 
-## Deliverables
-
-- RASD (Requirement Analysis and Specification Document)
-- DD (Design Document)
-
-The project is developed by a group of two students.
+  frontend/
+    Vue 3 frontend source code
