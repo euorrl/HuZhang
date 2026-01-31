@@ -43,8 +43,29 @@
             <p class="muted" style="margin-top:0;">This is a mock recorder (no GPS yet).</p>
 
             <div class="row">
-              <button class="btn primary" @click="start" :disabled="recording">Start</button>
-              <button class="btn secondary" @click="stop" :disabled="!recording">Stop</button>
+              <button
+                class="btn primary"
+                @click="() => { useMock = false; start() }"
+                :disabled="recording"
+              >
+                Start
+              </button>
+
+              <button
+                class="btn primary"
+                @click="() => { useMock = true; start() }"
+                :disabled="recording"
+              >
+                Start (Simulate GPS)
+              </button>
+
+              <button
+                class="btn secondary"
+                @click="stop"
+                :disabled="!recording"
+              >
+                Stop
+              </button>
             </div>
 
             <div class="stats">
@@ -480,7 +501,7 @@ function goReport(trip) {
 }
 
 
-async function start() {
+async function startmock() {
   if (recording.value) return
 
   // 1) 通知后端开始本次 trip
@@ -537,31 +558,138 @@ async function start() {
   }, 1000)
 }
 
+let watchId = null
+const useMock = ref(false)
+
+async function start() {
+  if (recording.value) return
+  console.log('[start] clicked, useMock=', useMock?.value)
+  // 0) reset 前端状态（共用）
+  recording.value = true
+  seconds.value = 0
+  distanceKm.value = 0
+
+  points.value = []
+  lastPoint = null
+  resetPolyline()
+  clearMarkers()
+
+  // 1) 启动 GPS 数据源（分支）
+  if (useMock.value) {
+    // --- MOCK：后端生成点 ---
+    await gpsStart()
+
+    // 立刻拉第一个点
+    const firstRaw = await gpsNext()
+    if (!firstRaw || firstRaw.lat == null || firstRaw.lon == null) return
+
+    const first = {
+      t: firstRaw.timestamp ?? Date.now(),
+      lat: firstRaw.lat,
+      lon: firstRaw.lon
+    }
+
+    pushPointAndUpdate(first)
+    setStartMarker(first)
+    if (map) map.setView([first.lat, first.lon], 16)
+
+    // 每秒拉一次 next
+    timer = setInterval(async () => {
+      try {
+        seconds.value += 1
+        const raw = await gpsNext()
+        if (!raw || raw.lat == null || raw.lon == null) return
+
+        // holding：到终点后不重复追加
+        if (raw.holding === true) {
+          if (points.value.length > 0) {
+            const endP = points.value[points.value.length - 1]
+            if (endP.lat !== raw.lat || endP.lon !== raw.lon) {
+              const p = { t: raw.timestamp ?? Date.now(), lat: raw.lat, lon: raw.lon }
+              pushPointAndUpdate(p)
+            }
+          }
+          return
+        }
+
+        const p = { t: raw.timestamp ?? Date.now(), lat: raw.lat, lon: raw.lon }
+        pushPointAndUpdate(p)
+      } catch (e) {
+        console.error('gpsNext failed:', e)
+      }
+    }, 1000)
+
+  } else {
+    // --- REAL：浏览器真实 GPS ---
+    if (!navigator.geolocation) {
+      console.error('Geolocation not supported')
+      recording.value = false
+      return
+    }
+
+    // UI 秒表仍然可以每秒走（真实 GPS 回调频率不保证 1 秒）
+    timer = setInterval(() => {
+      seconds.value += 1
+    }, 1000)
+
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords
+        const t = pos.timestamp ?? Date.now()
+        if (latitude == null || longitude == null) return
+
+        const p = { t, lat: latitude, lon: longitude }
+        pushPointAndUpdate(p)
+
+        if (points.value.length === 1) {
+          setStartMarker(p)
+          if (map) map.setView([p.lat, p.lon], 16)
+        }
+      },
+      (err) => {
+        console.error('GPS error:', err)
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000
+      }
+    )
+  }
+}
+
 async function stop() {
   recording.value = false
+
+  // 1) 停 UI 秒表（共用）
   if (timer) clearInterval(timer)
   timer = null
 
-  // 通知后端结束这条 trip（并准备下一条路线）
-  await gpsStop()
+  // 2) 释放 GPS 数据源（分支）
+  if (useMock.value) {
+    await gpsStop()
+  } else {
+    if (watchId != null) {
+      navigator.geolocation.clearWatch(watchId)
+      watchId = null
+    }
+  }
 
+  // ↓↓↓ 后半段：你原 stop() 的保存逻辑，完全共用 ↓↓↓
   if (points.value.length === 0) return
 
   const startPoint = points.value[0]
   const endPoint = points.value[points.value.length - 1]
 
-  // 地图终点 marker
   setEndMarker(endPoint)
 
   if (polyline && map && points.value.length >= 2) {
     map.fitBounds(polyline.getBounds(), { padding: [20, 20] })
   }
 
-  // 计算 pace（min/km 数值 + 文本）
   const paceMinPerKm = calcPaceMinPerKm(seconds.value, distanceKm.value)
   const paceText = formatPaceFromMinPerKm(paceMinPerKm)
 
-  // 逆地理编码
   let startPlaceShort = 'Unknown'
   let startPlaceFull = 'Unknown'
   let endPlaceShort = 'Unknown'
@@ -586,17 +714,9 @@ async function stop() {
     return
   }
 
-  // 1) createdBy（注意 localStorage key）
-  if (!createdBy) {
-    alert('Please login first')
-    return
-  }
-
-  // 2) track：必须 stringify（你后端现在就是按字符串插入的）
   const trackArr = points.value.map(p => ({ t: p.t, lat: p.lat, lon: p.lon }))
   const trackJson = JSON.stringify(trackArr)
 
-  // 3) 组装后端需要的 payload（字段名对齐 DB/Mapper）
   const payload = {
     createdBy,
     date: new Date().toISOString().slice(0, 10),
@@ -623,24 +743,21 @@ async function stop() {
   }
 
   try {
-    // 4) 调后端入库
-    const saved = await createTrip(payload) // { id: 1 }
+    const saved = await createTrip(payload)
     const newId = saved?.id ?? Date.now()
 
-    // 5) 本地列表也更新（id 用后端 id）
     trips.value.unshift({
       ...payload,
       id: newId,
-      paceText,        // 你 UI 用
-      track: trackArr, // 前端保留数组，方便马上画图（可选）
+      paceText,
+      track: trackArr,
     })
-
   } catch (e) {
     console.error('createTrip failed:', e)
     alert('Failed to save trip. Check backend console.')
   }
-
 }
+
 
 onMounted(() => {
   map = L.map('tripMap', { zoomControl: true }).setView([DEFAULT_LAT, DEFAULT_LON], 13)
