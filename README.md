@@ -69,6 +69,7 @@ src/
   frontend/
     Vue 3 frontend source code
 
+---
 
 ## Acceptance Testing Infrastructure
 
@@ -84,6 +85,7 @@ iOS Emulator (macOS)
 
 All core system functions are accessible through the web interface.
 
+---
 
 ## Deployment
 
