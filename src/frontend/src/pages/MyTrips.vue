@@ -238,6 +238,17 @@ import { gpsStart, gpsNext, gpsStop } from '../api/gps'
 import { createTrip, fetchTripsByUser, fetchTripById } from '../api/trips'
 import { useRouter } from 'vue-router' 
 
+import iconRetinaUrl from 'leaflet/dist/images/marker-icon-2x.png'
+import iconUrl from 'leaflet/dist/images/marker-icon.png'
+import shadowUrl from 'leaflet/dist/images/marker-shadow.png'
+
+delete L.Icon.Default.prototype._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl,
+  iconUrl,
+  shadowUrl
+})
+
 const recording = ref(false)
 const seconds = ref(0)
 const distanceKm = ref(0)
