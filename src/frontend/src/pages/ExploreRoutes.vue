@@ -20,10 +20,10 @@
           </div>
 
           <label>Origin</label>
-          <input v-model="origin" placeholder="e.g., Piazza Duomo" />
+          <input v-model="origin" placeholder="e.g., Piazza Leonardo da Vinci" />
 
           <label>Destination</label>
-          <input v-model="destination" placeholder="e.g., Politecnico di Milano" />
+          <input v-model="destination" placeholder="e.g., Via Giuseppe Ponzio" />
 
           <div class="row">
             <label class="chk">
