@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE = 'http://localhost:9090'
+const API_BASE = 'https://huzhang-production.up.railway.app'
 
 // 创建一条 trip（入库）
 export async function createTrip(tripPayload) {

@@ -1,5 +1,5 @@
 export async function loginOrRegister(username, password) {
-  const res = await fetch("http://localhost:9090/auth/login-or-register", {
+  const res = await fetch("https://huzhang-production.up.railway.app/auth/login-or-register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
