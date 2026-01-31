@@ -68,3 +68,33 @@ src/
 
   frontend/
     Vue 3 frontend source code
+
+
+## Acceptance Testing Infrastructure
+
+This project can be tested using:
+
+Desktop web browsers (Chrome, Firefox, Edge)
+
+Mobile browsers (Android / iOS)
+
+Android Emulator
+
+iOS Emulator (macOS)
+
+All core system functions are accessible through the web interface.
+
+
+## Deployment
+
+- **Frontend**
+
+  - Connected to GitHub
+
+  - Automatically deployed by Vercel on each push to main
+
+- **Backend**
+
+  - Connected to GitHub
+
+  - Automatically built and deployed by Railway
