@@ -234,7 +234,7 @@ import { isLoggedIn } from '../store/session'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-import { gpsStart, gpsNext, gpsStop } from '../api/gps'
+import { gpsStart, gpsNext, gpsStop } from '../api/gpsmock'
 import { createTrip, fetchTripsByUser, fetchTripById } from '../api/trips'
 import { useRouter } from 'vue-router' 
 
@@ -258,7 +258,7 @@ const trips = ref([])
 let timer = null
 const router = useRouter()
 
-// ---- GPS track ----
+// ---- GPSmock track ----
 const points = ref([]) // {t, lat, lon}[]
 let map = null
 let polyline = null
