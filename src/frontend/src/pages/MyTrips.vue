@@ -228,12 +228,13 @@ onBeforeUnmount(() => {
 </script> -->
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { isLoggedIn } from '../store/session'
+import { computed, onBeforeUnmount, onMounted, ref} from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
+import { isLoggedIn } from '../store/session'
 import { gpsStart, gpsNext, gpsStop } from '../api/gps'
 import { createTrip, fetchTripsByUser, fetchTripById } from '../api/trips'
 import { useRouter } from 'vue-router' 
@@ -669,7 +670,7 @@ async function start() {
   }
 }
 
-async function stop() {
+async function stop(save = true) {
   recording.value = false
 
   // 1) 停 UI 秒表（共用）
@@ -678,12 +679,27 @@ async function stop() {
 
   // 2) 释放 GPS 数据源（分支）
   if (useMock.value) {
-    await gpsStop()
+    if (save) {
+      await gpsStop()
+    } else {
+      gpsStop().catch(() => {})
+    }
   } else {
     if (watchId != null) {
       navigator.geolocation.clearWatch(watchId)
       watchId = null
     }
+  }
+
+  if (!save) {
+    points.value = []
+    seconds.value = 0
+    distanceKm.value = 0
+    lastPoint = null
+
+    resetPolyline()
+    clearMarkers()
+    return
   }
 
   // ↓↓↓ 后半段：你原 stop() 的保存逻辑，完全共用 ↓↓↓
@@ -782,12 +798,17 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stop(false)
   if (timer) clearInterval(timer)
   timer = null
   if (map) {
     map.remove()
     map = null
   }
+})
+
+onBeforeRouteLeave(() => {
+  stop(false)
 })
 </script>
 

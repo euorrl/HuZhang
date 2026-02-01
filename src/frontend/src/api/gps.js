@@ -1,13 +1,15 @@
-import http from './http'
+import axios from 'axios'
+
+const API_BASE = 'https://huzhang-production.up.railway.app'
 
 export function gpsStart() {
-  return http.get('/gps/start').then(r => r.data)
+  return axios.get(`${API_BASE}/api/gps/start`).then(r => r.data)
 }
 
 export function gpsNext() {
-  return http.get('/gps/next').then(r => r.data)
+  return axios.get(`${API_BASE}/api/gps/next`).then(r => r.data)
 }
 
 export function gpsStop() {
-  return http.get('/gps/stop').then(r => r.data)
+  return axios.get(`${API_BASE}/api/gps/stop`).then(r => r.data)
 }
