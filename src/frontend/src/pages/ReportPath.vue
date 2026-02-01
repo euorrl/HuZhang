@@ -99,7 +99,7 @@
                 </span>
               </div>
             </div> -->
-            <div class="list" v-else>
+            <div class="list reports-scroll" v-else>
               <div class="item" v-for="r in reports" :key="r.id">
                 <div class="left">
                   <!-- 标题：起点 - 终点 -->
@@ -502,5 +502,20 @@ select {
   background: #c6c5c5;
 }
 
+/* Reports 卡片内滚动 */
+.reports-scroll {
+  max-height: 360px;   /* 你可以调：300 / 360 / 420 */
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+/* 可选：滚动条美化 */
+.reports-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.reports-scroll::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: rgba(0,0,0,0.15);
+}
 
 </style>

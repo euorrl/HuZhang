@@ -144,7 +144,7 @@
             No trips saved yet.
           </div>
 
-          <div v-else class="list">
+          <div v-else class="list history-scroll">
             <div class="item"
               v-for="t in trips"
               :key="t.id"
@@ -1108,6 +1108,22 @@ h1{
 
 .pill-btn:hover{
   background: rgba(69, 63, 244, 0.85);
+}
+
+/* 让 History 的列表在盒子里滚动 */
+.history-scroll {
+  max-height: 360px;   /* 你要多高就改这个，比如 320/400/480 */
+  overflow-y: auto;
+  padding-right: 6px;  /* 防止滚动条挡住右侧按钮 */
+}
+
+/* 可选：滚动条更细更好看（Chrome/Edge） */
+.history-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.history-scroll::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: rgba(0,0,0,0.15);
 }
 
 </style>
