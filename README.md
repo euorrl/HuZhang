@@ -94,7 +94,7 @@ For full functionality (recording trips and publishing routes), users need to lo
 
 ```text
 DeliveryFolder/
-  Contains final deliverables (RASD, DD and ITD in PDF format)
+  Contains final deliverables (RASD, DD, ITD and ATD in PDF format)
 
 src/
   backend/
